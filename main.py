@@ -1,4 +1,5 @@
 import os
+from operator import itemgetter
 
 from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage
@@ -31,6 +32,9 @@ RAG_PROMPT = ChatPromptTemplate.from_messages(
 
                         Question:
                         {question}
+
+                        Response style:
+                        {answer_style}
                         """,
                     )
                 ]
@@ -46,48 +50,56 @@ def format_context(documents) -> str:
 
 
 RAG_CHAIN = (
-    {
-        "context": RETRIEVER | format_context,
-        "question": RunnablePassthrough(),
-    }
+    RunnablePassthrough.assign(
+        context=itemgetter("question") | RETRIEVER | format_context
+    )
     | RAG_PROMPT
     | LLM
     | StrOutputParser()
 )
 
 
-def answer_with_rag(question: str) -> str:
+def answer_with_rag(question: str, answer_style: str) -> str:
     """Retrieve relevant documents and answer the question using their context."""
     retrieved_documents = RETRIEVER.invoke(question)
     context = format_context(retrieved_documents)
 
-    messages = RAG_PROMPT.format_messages(context=context, question=question)
+    messages = RAG_PROMPT.format_messages(
+        context=context,
+        question=question,
+        answer_style=answer_style,
+    )
     response = LLM.invoke(messages)
     return response.content
 
 
-def answer_with_rag_lcel(question: str) -> str:
+def answer_with_rag_lcel(question: str, answer_style: str) -> str:
     """Answer a question with the same RAG flow composed using LCEL."""
-    return RAG_CHAIN.invoke(question)
+    return RAG_CHAIN.invoke(
+        {"question": question, "answer_style": answer_style}
+    )
 
 
 def main() -> None:
     question = "What is Pinecone in Machine Learning?"
+    answer_style = "Answer in two concise sentences."
 
     print("\n" + "=" * 90 + "\n")
 
     print("Option 0 : Raw LLM Invocation (No RAG)")
-    raw_response = LLM.invoke([HumanMessage(content=question)])
+    raw_response = LLM.invoke(
+        [HumanMessage(content=f"{question}\n\n{answer_style}")]
+    )
     print(raw_response.content)
 
     print("\n" + "=" * 90 + "\n")
     print("Option 1 : RAG (Manual Invocation, No LCEL)")
-    rag_response = answer_with_rag(question)
+    rag_response = answer_with_rag(question, answer_style)
     print(rag_response)
 
     print("\n" + "=" * 90 + "\n")
     print("Option 2 : RAG with LCEL")
-    rag_lcel_response = answer_with_rag_lcel(question)
+    rag_lcel_response = answer_with_rag_lcel(question, answer_style)
     print(rag_lcel_response)
 
 
